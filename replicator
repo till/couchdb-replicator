@@ -1,0 +1,35 @@
+#!/usr/bin/env php
+<?php
+require_once 'Console/CommandLine.php';
+
+$parser = new Console_CommandLine(array(
+    'description' => 'Replicate a database from --source to --target.',
+    'version'     => '0.1.0'
+));
+
+$parser->addOption('source', array(
+    'short_name'  => '-s',
+    'long_name'   => '--source',
+    'action'      => 'StoreString',
+    'description' => 'source database'
+));
+
+$parser->addOption('target', array(
+    'short_name'  => '-t',
+    'long_name'   => '--target',
+    'action'      => 'StoreString',
+    'description' => 'target database'
+));
+
+try {
+    $result = $parser->parse();
+    $source = $result->options['source'];
+    $target = $result->options['target'];
+
+    if (empty($target) || empty($source)) {
+        throw new InvalidArgumentException("Please provide --source and --target to run.");
+    }
+
+} catch (Exception $exc) {
+    $parser->displayError($exc->getMessage());
+}
