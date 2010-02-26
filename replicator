@@ -34,6 +34,7 @@ try {
     $result = $parser->parse();
     $source = $result->options['source'];
     $target = $result->options['target'];
+    $resume = $result->options['resume'];
 
     if (empty($target) || empty($source)) {
         throw new InvalidArgumentException("Please provide --source and --target to run.");
@@ -49,10 +50,7 @@ try {
     $parser->displayError($exc->getMessage());
 }
 
-$GLOBALS['current'] = 0;
-if (!empty($result->options['resume'])) {
-    $GLOBALS['current'] = $resume;
-}
+$GLOBALS['current'] = (int) $resume;
 
 $total = $replicator->getTotals($source);
 
@@ -242,6 +240,8 @@ class CouchDBReplicator
     protected function handleException(Exception $e)
     {
         $msg  = "An error occured: {$e->getCode()}.\n";
+        $msg .= "Message: {$e->getMessage()}\n";
+        $msg .= "Trace:\n";
         $msg .= $e->getTraceAsString();
         $msg .= "\n\n";
         $msg .= "Stuck on current: {$GLOBALS['current']}. Please resume later.";
