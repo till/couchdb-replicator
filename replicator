@@ -1,6 +1,7 @@
 #!/usr/bin/env php
 <?php
 require_once 'Console/CommandLine.php';
+require_once 'Console/ProgressBar.php';
 require_once 'HTTP/Request2.php';
 require_once 'Validate.php';
 
@@ -55,20 +56,25 @@ $GLOBALS['current'] = (int) $resume;
 $total = $replicator->getTotals($source);
 
 // read from source, send to target
+echo "Total number of documents: {$total}\n\n";
+
+$bar = new Console_ProgressBar('- %fraction% [%bar%] %percent% ETA: %estimate%', '=>', '-', 76, $total);
+$bar->update(0);
 
 while($GLOBALS['current'] <= $total) {
 
     $documents = $replicator->getDocuments($source);
 
     $replicator->saveDocuments($target, $documents);
-    exit;
-    sleep(1);
 
     $GLOBALS['current'] += $replicator->getPerPage();
 
-    //$replicator->saveDocuments($target, $documents);
-
+    $bar->update($GLOBALS['current']);
+    sleep(1);
 }
+
+echo "\n";
+echo "Done!";
 
 /**
  * Helper class.
@@ -76,7 +82,9 @@ while($GLOBALS['current'] <= $total) {
  */
 class CouchDBReplicator
 {
-    protected $perPage = 100;
+    protected $debug = false;
+
+    protected $perPage = 1000;
 
     /**
      */
@@ -97,7 +105,16 @@ class CouchDBReplicator
         foreach ($documents as $document)
         {
             $document = $document->doc;
-            $status   = $this->saveDocument($server, $document);
+
+            $document->id = $document->_id;
+            unset($document->_rev);
+            unset($document->_id);
+
+            $endpoint = $server . "/{$document->id}";
+
+            unset($document->id);
+
+            $status = $this->saveDocument($endpoint, $document);
             if ($status !== true) {
                 $this->handleException(new Exception("Error."));
             }
@@ -217,9 +234,22 @@ class CouchDBReplicator
         $client = new Http_Request2;
         $client->setUrl($uri)->setMethod($method);
 
+
+        $payload = null;
         if ($data !== null && $method == HTTP_Request2::METHOD_PUT) {
+
+            $payload = json_encode($data);
+
             $client->setHeader('Content-Type: application/json');
-            $client->setBody(json_encode($data));
+            $client->setBody($payload);
+        }
+
+        if ($this->debug === true) {
+            echo "DEBUG:\n";
+            echo "Current: {$GLOBALS['current']}\n";
+            echo "Method: {$method}\n";
+            echo "URL: {$uri}\n";
+            echo "Data: {$payload}\n\n";
         }
 
         try {
