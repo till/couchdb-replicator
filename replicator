@@ -275,6 +275,10 @@ class CouchDBReplicator
                 return;
             }
 
+            var_dump($e->getMessage());
+
+            $this->handleException($e);
+
         } catch (Exception $e) {
             $this->handleException($e);
         }
