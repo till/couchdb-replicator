@@ -59,7 +59,7 @@ $total = $replicator->getTotals($source);
 echo "Total number of documents: {$total}\n\n";
 
 $bar = new Console_ProgressBar('- %fraction% [%bar%] %percent% ETA: %estimate%', '=>', '-', 76, $total);
-$bar->update(0);
+$bar->update($GLOBALS['current']);
 
 while($GLOBALS['current'] <= $total) {
 
@@ -102,6 +102,7 @@ class CouchDBReplicator
      */
     public function saveDocuments($server, array $documents)
     {
+        $i = 0;
         foreach ($documents as $document)
         {
             $document = $document->doc;
@@ -117,6 +118,12 @@ class CouchDBReplicator
             $status = $this->saveDocument($endpoint, $document);
             if ($status !== true) {
                 $this->handleException(new Exception("Error."));
+            }
+
+            $i++;
+
+            if (($i%100) == 0) {
+                sleep(1);
             }
         }
     }
@@ -134,6 +141,10 @@ class CouchDBReplicator
     public function saveDocument($server, $document)
     {
         $resp = $this->makeRequest($server, HTTP_Request2::METHOD_PUT, $document);
+        if (!($resp instanceof HTTP_Request2_Response)) {
+            sleep(20); // let's sleep a while
+            $this->saveDocument($server, $document); // recursive loop ftw! :D
+        }
         if ($resp->getStatus() == 201) {
             return true;
         }
@@ -213,6 +224,9 @@ class CouchDBReplicator
             $msg .= $response->getBody();
             $msg .= "\n\n";
             $msg .= "Stuck on current: {$GLOBALS['current']}. Please resume later.";
+            if ($response->getStatus() == 0) {
+                return false;
+            }
 
             throw new RuntimeException($msg);
         }
@@ -254,6 +268,13 @@ class CouchDBReplicator
 
         try {
             $resp = $client->send();
+        } catch (HTTP_Request2_Exception $e) {
+            // most likely a timeout or "Malformed response."
+            if (strstr($e->getMessage(), 'Malformed response')) {
+                var_dump($client->getLastEvent(), $client->getUrl(), $client->getBody());
+                return;
+            }
+
         } catch (Exception $e) {
             $this->handleException($e);
         }
