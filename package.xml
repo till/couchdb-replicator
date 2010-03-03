@@ -3,7 +3,7 @@
 http://pear.php.net/dtd/tasks-1.0.xsd
 http://pear.php.net/dtd/package-2.0
 http://pear.php.net/dtd/package-2.0.xsd">
- <name>CouchDB_Replicator</name>
+ <name>DB_CouchDB_Replicator</name>
  <channel>till.pearfarm.org</channel>
  <summary>A tool to move data from one server, to another, when replication is not available.</summary>
  <description>See summary!
