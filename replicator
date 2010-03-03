@@ -82,7 +82,12 @@ echo "Done!";
  */
 class CouchDBReplicator
 {
-    protected $debug = false;
+    /**
+     * @var HTTP_Request2 $client
+     */
+    protected $client;
+
+    public $debug = false;
 
     protected $perPage = 1000;
 
@@ -120,6 +125,8 @@ class CouchDBReplicator
                 $this->handleException(new Exception("Error."));
             }
 
+            unset($this->client); // clean up
+
             $i++;
 
             if (($i%100) == 0) {
@@ -147,6 +154,10 @@ class CouchDBReplicator
         }
         if ($resp->getStatus() == 201) {
             return true;
+        }
+        if ($resp->getStatus() == 401) {
+            // auth timeout
+            return false;
         }
         if ($resp->getStatus() == 409) {
             // document already in the index (are we resuming?)
@@ -227,6 +238,10 @@ class CouchDBReplicator
             if ($response->getStatus() == 0) {
                 return false;
             }
+            if ($response->getStatus() == 401) {
+                // auth timed out, let's redo this
+                return false;
+            }
 
             throw new RuntimeException($msg);
         }
@@ -243,11 +258,11 @@ class CouchDBReplicator
      *
      * @return HTTP_Request2_Response
      */
-    protected function makeRequest($uri, $method = HTTP_Request2::METHOD_GET, $data = null)
+    protected function makeRequest($uri, $method = HTTP_Request2::METHOD_GET, $data = null, $force = false)
     {
-        if ($this->client === null) {
+        // if ($this->client === null) {
             $this->client = new Http_Request2;
-        }
+        // }
         $this->client->setUrl($uri)->setMethod($method);
 
 
@@ -269,16 +284,16 @@ class CouchDBReplicator
         }
 
         try {
-            $resp = $client->send();
+            $resp = $this->client->send();
             return $resp;
         } catch (HTTP_Request2_Exception $e) {
             // most likely a timeout or "Malformed response."
             if (strstr($e->getMessage(), 'Malformed response')) {
-                var_dump($this->client->getLastEvent(), $this->client->getUrl(), $this->client->getBody());
+                //var_dump($this->client->getLastEvent(), $this->client->getUrl(), $this->client->getBody());
                 return;
             }
 
-            var_dump($e->getMessage());
+            var_dump("DEBUG: " . $e->getMessage());
 
             $this->handleException($e);
 
