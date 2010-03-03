@@ -143,7 +143,7 @@ class CouchDBReplicator
         $resp = $this->makeRequest($server, HTTP_Request2::METHOD_PUT, $document);
         if (!($resp instanceof HTTP_Request2_Response)) {
             sleep(20); // let's sleep a while
-            $this->saveDocument($server, $document); // recursive loop ftw! :D
+            return $this->saveDocument($server, $document); // recursive loop ftw! :D
         }
         if ($resp->getStatus() == 201) {
             return true;
