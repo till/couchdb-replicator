@@ -245,8 +245,10 @@ class CouchDBReplicator
      */
     protected function makeRequest($uri, $method = HTTP_Request2::METHOD_GET, $data = null)
     {
-        $client = new Http_Request2;
-        $client->setUrl($uri)->setMethod($method);
+        if ($this->client === null) {
+            $this->client = new Http_Request2;
+        }
+        $this->client->setUrl($uri)->setMethod($method);
 
 
         $payload = null;
@@ -254,8 +256,8 @@ class CouchDBReplicator
 
             $payload = json_encode($data);
 
-            $client->setHeader('Content-Type: application/json');
-            $client->setBody($payload);
+            $this->client->setHeader('Content-Type: application/json');
+            $this->client->setBody($payload);
         }
 
         if ($this->debug === true) {
@@ -268,10 +270,11 @@ class CouchDBReplicator
 
         try {
             $resp = $client->send();
+            return $resp;
         } catch (HTTP_Request2_Exception $e) {
             // most likely a timeout or "Malformed response."
             if (strstr($e->getMessage(), 'Malformed response')) {
-                var_dump($client->getLastEvent(), $client->getUrl(), $client->getBody());
+                var_dump($this->client->getLastEvent(), $this->client->getUrl(), $this->client->getBody());
                 return;
             }
 
@@ -282,8 +285,6 @@ class CouchDBReplicator
         } catch (Exception $e) {
             $this->handleException($e);
         }
-
-        return $resp;
     }
 
     /**
