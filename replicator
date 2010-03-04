@@ -68,6 +68,11 @@ require_once 'HTTP/Request2.php';
  */
 require_once 'Validate.php';
 
+/**
+ * DB_CouchDB_Replicator
+ */
+require_once 'DB/CouchDB/Replicator.php';
+
 $parser = new Console_CommandLine(array(
     'description' => 'Replicate a database from --source to --target.',
     'version'     => '@package_version@'
@@ -91,7 +96,14 @@ $parser->addOption('resume', array(
     'short_name'  => '-r',
     'long_name'   => '--resume',
     'action'      => 'StoreInt',
-    'description' => 'resume'
+    'description' => 'resume',
+));
+
+$parser->addOption('pagesize', array(
+    'short_name'  => '-p',
+    'long_name'   => '--page-size',
+    'action'      => 'StoreInt',
+    'description' => '# of documents to pull (default: 1000)',
 ));
 
 try {
@@ -99,12 +111,18 @@ try {
     $source = $result->options['source'];
     $target = $result->options['target'];
     $resume = $result->options['resume'];
+    $page   = (int) $result->options['pagesize'];
 
     if (empty($target) || empty($source)) {
         throw new InvalidArgumentException("Please provide --source and --target to run.");
     }
 
+    if (empty($page) || $page == 0) {
+        $page = 1000;
+    }
+
     $replicator = new DB_CouchDB_Replicator;
+    $replicator->setPageSize($page);
 
     if (!$replicator->isValid($target) || !$replicator->isValid($source)) {
         throw new InvalidArgumentExceptio("Source/target must be a URI.");
@@ -132,290 +150,11 @@ while($GLOBALS['current'] <= $total) {
 
     $GLOBALS['current'] += $replicator->getPerPage();
 
+    unset($documents); // cleanup
+
     $bar->update($GLOBALS['current']);
     sleep(1);
 }
 
 echo "\n";
 echo "Done!";
-
-/**
- * DB_CouchDB_Replicator - Helper class.
- *
- * @category Database
- * @package  DB_CouchDB_Replicator
- * @author   Till Klampaeckel <till@php.net>
- * @license  http://www.opensource.org/licenses/bsd-license.php The BSD License
- * @version  Release: @package_version@
- * @link     http://till.klampaeckel.de/blog/
- */
-class DB_CouchDB_Replicator
-{
-    /**
-     * @var HTTP_Request2 $client
-     */
-    protected $client;
-
-    public $debug = false;
-
-    protected $perPage = 1000;
-
-    /**
-     */
-    public function testConnection()
-    {
-        // use net_url2 to get to the couchdb server and 
-        // try to get the greeting
-    }
-
-    /**
-     * Save the documents to the server.
-     *
-     * @param string $server    The target server.
-     * @param array  $documents The documents, stacked stdClass.
-     */
-    public function saveDocuments($server, array $documents)
-    {
-        $i = 0;
-        foreach ($documents as $document)
-        {
-            $document = $document->doc;
-
-            $document->id = $document->_id;
-            unset($document->_rev);
-            unset($document->_id);
-
-            $endpoint = $server . "/{$document->id}";
-
-            unset($document->id);
-
-            $status = $this->saveDocument($endpoint, $document);
-            if ($status !== true) {
-                $this->handleException(new Exception("Error."));
-            }
-
-            unset($this->client); // clean up
-
-            $i++;
-
-            if (($i%100) == 0) {
-                sleep(1);
-            }
-        }
-    }
-
-    /**
-     * Save a single document.
-     *
-     * @param string   $server
-     * @param stdClass $document
-     *
-     * @return boolean
-     * @uses   self::makeRequest()
-     * @uses   self::handleException()
-     */
-    public function saveDocument($server, $document)
-    {
-        $resp = $this->makeRequest($server, HTTP_Request2::METHOD_PUT, $document);
-        if (!($resp instanceof HTTP_Request2_Response)) {
-            sleep(20); // let's sleep a while
-            return $this->saveDocument($server, $document); // recursive loop ftw! :D
-        }
-        if ($resp->getStatus() == 201) {
-            return true;
-        }
-        if ($resp->getStatus() == 401) {
-            // auth timeout
-            return false;
-        }
-        if ($resp->getStatus() == 409) {
-            // document already in the index (are we resuming?)
-            return true;
-        }
-        $this->handleException(new Exception($resp->getBody(), $resp->getStatus()));
-    }
-
-    /**
-     * Determine if this is a valid URI to a database resource.
-     *
-     * @param string $database The URI of a database.
-     *
-     * @return boolean
-     * @uses   Validate::uri()
-     */
-    public function isValid($database)
-    {
-        static $options = array('allowed_schemes' => array('http', 'https'));
-        return Validate::uri($database, $options);
-    }
-
-    /**
-     * Get total number of documents on the server.
-     *
-     * @param string $server The CouchDB server.
-     *
-     * @return int
-     */
-    public function getTotals($server)
-    {
-        $uri  = $this->getUri($server, false);
-        $resp = $this->makeRequest($uri);
-
-        $data = json_decode($resp->getBody());
-
-        return (int) $data->total_rows;
-    }
-
-    /**
-     * Return the setting.
-     *
-     * @return int
-     */
-    public function getPerPage()
-    {
-        return $this->perPage;
-    }
-
-    /**
-     * Read documents from server.
-     *
-     * @param string $database The URI of the database to read from.
-     *
-     * @return array
-     */
-    public function getDocuments($database)
-    {
-        $uri  = $this->getUri($database);
-        $resp = $this->makeRequest($uri);
-        if (!($resp instanceof HTTP_Request2_Response)) {
-            // probably a timeout
-            while (!($resp instanceof HTTP_Request2_Response)) {
-                sleep(10);
-                $resp = $this->makeRequest($uri);
-            }
-        }
-        $data = $this->parseResponse($resp);
-
-        return $data;
-    }
-
-    /**
-     * @param HTTP_Request2_Respone $respone The response from the CouchDB server.
-     *
-     * @return array
-     */
-    protected function parseResponse(HTTP_Request2_Response $response)
-    {
-        if ($response->getStatus() !== 200) {
-            $msg  = "An error occured: {$response->getStatus()}.\n";
-            $msg .= $response->getBody();
-            $msg .= "\n\n";
-            $msg .= "Stuck on current: {$GLOBALS['current']}. Please resume later.";
-            if ($response->getStatus() == 0) {
-                return false;
-            }
-            if ($response->getStatus() == 401) {
-                // auth timed out, let's redo this
-                return false;
-            }
-
-            throw new RuntimeException($msg);
-        }
-        $data = json_decode($response->getBody());
-        return $data->rows;
-    }
-
-    /**
-     * Make request against the URI.
-     *
-     * @param string $uri    The URL.
-     * @param string $method The request method.
-     * @param mixed  $data   For POST/PUT.
-     *
-     * @return HTTP_Request2_Response
-     */
-    protected function makeRequest($uri, $method = HTTP_Request2::METHOD_GET, $data = null, $force = false)
-    {
-        // if ($this->client === null) {
-            $this->client = new Http_Request2;
-        // }
-        $this->client->setUrl($uri)->setMethod($method);
-
-
-        $payload = null;
-        if ($data !== null && $method == HTTP_Request2::METHOD_PUT) {
-
-            $payload = json_encode($data);
-
-            $this->client->setHeader('Content-Type: application/json');
-            $this->client->setBody($payload);
-        }
-
-        if ($this->debug === true) {
-            echo "DEBUG:\n";
-            echo "Current: {$GLOBALS['current']}\n";
-            echo "Method: {$method}\n";
-            echo "URL: {$uri}\n";
-            echo "Data: {$payload}\n\n";
-        }
-
-        try {
-            $resp = $this->client->send();
-            return $resp;
-        } catch (HTTP_Request2_Exception $e) {
-            // most likely a timeout or "Malformed response."
-            if (strstr($e->getMessage(), 'Malformed response')) {
-                //var_dump($this->client->getLastEvent(), $this->client->getUrl(), $this->client->getBody());
-                return;
-            }
-
-            var_dump("DEBUG: " . $e->getMessage());
-
-            $this->handleException($e);
-
-        } catch (Exception $e) {
-            $this->handleException($e);
-        }
-    }
-
-    /**
-     * @param Exeption $e The exception to re-throw.
-     *
-     * @return void
-     * @throws RuntimeException
-     */
-    protected function handleException(Exception $e)
-    {
-        $msg  = "An error occured: {$e->getCode()}.\n";
-        $msg .= "Message: {$e->getMessage()}\n";
-        $msg .= "Trace:\n";
-        $msg .= $e->getTraceAsString();
-        $msg .= "\n\n";
-        $msg .= "Stuck on current: {$GLOBALS['current']}. Please resume later.";
-
-        throw new RuntimeException($msg);
-    }
-
-    /**
-     * Build URI
-     * 
-     * @param string  $server       The CouchDB server.
-     * @param boolean $include_docs True, or false.
-     *
-     * @return string
-     * @uses   $GLOBALS['current'];
-     */
-    protected function getUri($server, $include_docs = true)
-    {
-        if ($include_docs === true) {
-            $include_docs = 'true';
-        } else {
-            $include_docs = 'false';
-        }
-        $uri  = "{$server}/_all_docs/?include_docs={$include_docs}";
-        $uri .= "&limit={$this->perPage}";
-        $uri .= "&skip={$GLOBALS['current']}";
-
-        return $uri;
-    }
-}
