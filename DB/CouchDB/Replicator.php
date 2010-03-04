@@ -74,6 +74,9 @@ class DB_CouchDB_Replicator
     protected $perPage = 1000;
 
     /**
+     * To be done.
+     *
+     * @return void
      */
     public function testConnection()
     {
@@ -100,12 +103,13 @@ class DB_CouchDB_Replicator
      *
      * @param string $server    The target server.
      * @param array  $documents The documents, stacked stdClass.
+     *
+     * @return void
      */
     public function saveDocuments($server, array $documents)
     {
         $i = 0;
-        foreach ($documents as $document)
-        {
+        foreach ($documents as $document) {
             $document = $document->doc;
 
             $document->id = $document->_id;
@@ -134,8 +138,11 @@ class DB_CouchDB_Replicator
     /**
      * Save a single document.
      *
-     * @param string   $server
-     * @param stdClass $document
+     * We'll need a stdClass object of the $document, sans id. The document is saved
+     * via request to the new server.
+     *
+     * @param string   $server   The server to save to, includes the DB.
+     * @param stdClass $document The document object.
      *
      * @return boolean
      * @uses   self::makeRequest()
@@ -228,9 +235,13 @@ class DB_CouchDB_Replicator
     }
 
     /**
-     * @param HTTP_Request2_Respone $respone The response from the CouchDB server.
+     * Parse the response received from {@link self::makeRequest()}.
      *
-     * @return array
+     * @param HTTP_Request2_Respone $response The response from the CouchDB server.
+     *
+     * @return mixed An arrayi if it was successful, false if the request died or
+     *               auth time out.
+     * @throws RuntimeException For an unhandled response. ;)
      */
     protected function parseResponse(HTTP_Request2_Response $response)
     {
@@ -256,14 +267,19 @@ class DB_CouchDB_Replicator
     /**
      * Make request against the URI.
      *
-     * @param string $uri    The URL.
-     * @param string $method The request method.
-     * @param mixed  $data   For POST/PUT.
+     * @param string  $uri    The URL.
+     * @param string  $method The request method.
+     * @param mixed   $data   For POST/PUT.
+     * @param boolean $force  Force reconnect/new client - to be implemented.
      *
      * @return HTTP_Request2_Response
      */
-    protected function makeRequest($uri, $method = HTTP_Request2::METHOD_GET, $data = null, $force = false)
-    {
+    protected function makeRequest(
+        $uri,
+        $method = HTTP_Request2::METHOD_GET,
+        $data = null,
+        $force = false
+    ) {
         // if ($this->client === null) {
             $this->client = new Http_Request2;
         // }
@@ -293,7 +309,11 @@ class DB_CouchDB_Replicator
         } catch (HTTP_Request2_Exception $e) {
             // most likely a timeout or "Malformed response."
             if (strstr($e->getMessage(), 'Malformed response')) {
-                //var_dump($this->client->getLastEvent(), $this->client->getUrl(), $this->client->getBody());
+                /*
+                var_dump($this->client->getLastEvent(),
+                    $this->client->getUrl(),
+                    $this->client->getBody());
+                */
                 return;
             }
 
@@ -307,6 +327,8 @@ class DB_CouchDB_Replicator
     }
 
     /**
+     * Handle the exception and try to improve the trace, etc..
+     *
      * @param Exeption $e The exception to re-throw.
      *
      * @return void
