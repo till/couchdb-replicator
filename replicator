@@ -287,6 +287,13 @@ class DB_CouchDB_Replicator
     {
         $uri  = $this->getUri($database);
         $resp = $this->makeRequest($uri);
+        if (!($resp instanceof HTTP_Request2_Response)) {
+            // probably a timeout
+            while (!($resp instanceof HTTP_Request2_Response)) {
+                sleep(10);
+                $resp = $this->makeRequest($uri);
+            }
+        }
         $data = $this->parseResponse($resp);
 
         return $data;
